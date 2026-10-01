@@ -1,0 +1,57 @@
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-alarm-broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./broker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-q", "1", "-t", "healthcheck", "-m", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  publisher-pintu:
+    build: ./publisher-pintu
+    container_name: publisher-pintu
+    environment:
+      BROKER_HOST: broker
+      BROKER_PORT: "1883"
+      INTERVAL_SECONDS: "5"
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  publisher-asap:
+    build: ./publisher-asap
+    container_name: publisher-asap
+    environment:
+      BROKER_HOST: broker
+      BROKER_PORT: "1883"
+      INTERVAL_SECONDS: "5"
+      ASAP_STATUS: aman
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alarm:
+    build: ./alarm
+    container_name: mqtt-alarm
+    environment:
+      BROKER_HOST: broker
+      BROKER_PORT: "1883"
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
