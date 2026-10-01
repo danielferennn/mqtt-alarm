@@ -1,24 +1,24 @@
-# Sistem Alarm Keamanan via MQTT
+# MQTT Security Alarm System
 
-Simulasi sistem alarm keamanan berbasis **edge computing** menggunakan protokol **MQTT**.
-Empat layanan berjalan bersama lewat Docker Compose: satu broker Mosquitto, dua publisher
-sensor (pintu dan asap), dan satu unit alarm sebagai subscriber.
+An **edge computing** security alarm simulation built on the **MQTT** protocol.
+Four services run together via Docker Compose: a Mosquitto broker, two sensor
+publishers (door and smoke), and an alarm unit acting as the subscriber.
 
-Proyek ini mendemonstrasikan konsep inti MQTT untuk perangkat edge:
+This project demonstrates core MQTT concepts used by edge devices:
 
-- Pemisahan peran **publish/subscribe** melalui broker
-- **Quality of Service (QoS)** 0/1/2 dan perbedaannya
-- **Retained message** untuk menyimpan status terakhir perangkat
-- **Last Will and Testament (LWT)** untuk mendeteksi perangkat yang terputus mendadak
-- **Dependency & healthcheck** antar-layanan di Docker Compose
+- **Publish/subscribe** decoupling through a broker
+- **Quality of Service (QoS)** levels 0/1/2 and how they differ
+- **Retained messages** for storing a device's last known state
+- **Last Will and Testament (LWT)** for detecting devices that drop off abruptly
+- **Service dependencies and healthchecks** in Docker Compose
 
 ---
 
-## Arsitektur
+## Architecture
 
 ```text
                       +-------------------------+
-                      |   Broker Mosquitto      |
+                      |   Mosquitto Broker      |
                       |   (eclipse-mosquitto:2) |
                       |      port 1883          |
                       +------------+------------+
@@ -29,40 +29,40 @@ Proyek ini mendemonstrasikan konsep inti MQTT untuk perangkat edge:
         security/asap/status       |                    |
                                    |                    |
                         +----------+----------+   +-----+----------------+
-                        |  publisher-pintu    |   |  unit alarm          |
+                        |  publisher-pintu    |   |  alarm unit          |
                         |  publisher-asap     |   |  (subscriber)        |
                         +---------------------+   +----------------------+
 ```
 
-**Alur data**
+**Data flow**
 
-1. Setiap publisher tersambung ke broker, menerbitkan `online` ke topic status miliknya,
-   dan memasang LWT `offline` pada topic yang sama.
-2. Publisher pintu bergantian mengirim `tertutup` dan `terbuka`.
-   Publisher asap mengirim `aman` (atau `terdeteksi` bila dikonfigurasi).
-3. Unit alarm berlangganan `security/#` dan mencetak setiap pesan yang masuk.
-4. Bila publisher berhenti mendadak (tanpa MQTT `DISCONNECT`), broker menerbitkan LWT
-   `offline` dan unit alarm mencetak peringatan.
+1. Each publisher connects to the broker, publishes `online` to its own status
+   topic, and registers an `offline` Last Will on that same topic.
+2. The door publisher alternates between `tertutup` (closed) and `terbuka` (open).
+   The smoke publisher sends `aman` (safe), or `terdeteksi` (detected) when configured.
+3. The alarm unit subscribes to `security/#` and logs every incoming message.
+4. If a publisher stops abruptly (without an MQTT `DISCONNECT`), the broker
+   publishes the `offline` Last Will and the alarm unit raises an alert.
 
 ---
 
-## Struktur proyek
+## Project structure
 
 ```text
 mqtt-alarm/
-├── docker-compose.yml          # Definisi 4 layanan, healthcheck, dan volume
+├── docker-compose.yml          # Four services, healthcheck, and volumes
 ├── broker/
-│   └── mosquitto.conf          # Konfigurasi broker (listener, persistence, logging)
+│   └── mosquitto.conf          # Broker config (listener, persistence, logging)
 ├── alarm/
-│   ├── alarm.py                # Subscriber: menerima pesan & mencetak ALERT
+│   ├── alarm.py                # Subscriber: receives messages and raises ALERTs
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── publisher-pintu/
-│   ├── publisher_pintu.py      # Publisher sensor pintu (QoS 1, retained)
+│   ├── publisher_pintu.py      # Door sensor publisher (QoS 1, retained)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── publisher-asap/
-│   ├── publisher_asap.py       # Publisher sensor asap (QoS 2)
+│   ├── publisher_asap.py       # Smoke sensor publisher (QoS 2)
 │   ├── requirements.txt
 │   └── Dockerfile
 └── README.md
@@ -70,33 +70,33 @@ mqtt-alarm/
 
 ---
 
-## Prasyarat
+## Prerequisites
 
-- Docker Engine 20.10+ dengan plugin **Docker Compose v2**
-- Port **1883** bebas di host
-- Koneksi internet pada build pertama (mengunduh image dasar)
+- Docker Engine 20.10+ with the **Docker Compose v2** plugin
+- Port **1883** free on the host
+- Internet access on the first build (to pull base images)
 
 ---
 
-## Menjalankan sistem
+## Running the system
 
-Dari folder root proyek:
+From the project root:
 
 ```sh
 docker compose up --build -d
 docker compose logs -f alarm
 ```
 
-Layanan `publisher-pintu`, `publisher-asap`, dan `alarm` menunggu broker berstatus
-`healthy` sebelum dijalankan, sehingga tidak ada percobaan koneksi yang gagal saat start.
+The `publisher-pintu`, `publisher-asap`, and `alarm` services wait until the
+broker reports `healthy` before starting, so no connection attempt fails at boot.
 
-Hentikan seluruh layanan:
+Stop all services:
 
 ```sh
 docker compose down
 ```
 
-Hapus sekaligus volume (data retained & log broker ikut terhapus):
+Remove the volumes as well (retained data and broker logs are deleted):
 
 ```sh
 docker compose down -v
@@ -104,68 +104,70 @@ docker compose down -v
 
 ---
 
-## Topic dan QoS
+## Topics and QoS
 
-| Fungsi                  | Topic                  | QoS | Retained |
-| ----------------------- | ---------------------- | --: | -------- |
-| Status pintu            | `security/pintu`       |   1 | Ya       |
-| Status asap             | `security/asap`        |   2 | Tidak    |
-| Status koneksi pintu    | `security/pintu/status`|   1 | Ya       |
-| Status koneksi asap     | `security/asap/status` |   1 | Ya       |
-| Langganan unit alarm    | `security/#`           |   2 | —        |
+| Purpose             | Topic                   | QoS | Retained |
+| ------------------- | ----------------------- | --: | -------- |
+| Door state          | `security/pintu`        |   1 | Yes      |
+| Smoke state         | `security/asap`         |   2 | No       |
+| Door connection     | `security/pintu/status` |   1 | Yes      |
+| Smoke connection    | `security/asap/status`  |   1 | Yes      |
+| Alarm subscription  | `security/#`            |   2 | —        |
 
-Catatan: QoS langganan dan QoS publikasi dinegosiasikan turun ke nilai terendah,
-sehingga pesan QoS 1 dari publisher pintu tetap diterima unit alarm dengan `qos=1`.
-
----
-
-## Konfigurasi
-
-Diatur melalui environment variable pada `docker-compose.yml`.
-
-| Variabel                | Layanan           | Default  | Keterangan                                            |
-| ----------------------- | ----------------- | -------- | ----------------------------------------------------- |
-| `BROKER_HOST`           | semua             | `broker` | Nama host broker di jaringan Compose                  |
-| `BROKER_PORT`           | semua             | `1883`   | Port broker                                           |
-| `INTERVAL_SECONDS`      | kedua publisher   | `5`      | Jeda antar publikasi                                  |
-| `PUBLISH_TIMEOUT_SECONDS`| kedua publisher  | `5`      | Batas tunggu ack publish sebelum menandai gagal       |
-| `ASAP_STATUS`           | `publisher-asap`  | `aman`   | `aman` atau `terdeteksi`                              |
+Note: subscription QoS and publishing QoS are negotiated down to the lower
+value, so QoS 1 messages from the door publisher still reach the alarm unit
+with `qos=1`.
 
 ---
 
-## Skenario pengujian
+## Configuration
 
-### 1. Alur normal
+Set through environment variables in `docker-compose.yml`.
+
+| Variable                  | Service         | Default  | Description                                    |
+| ------------------------- | --------------- | -------- | ---------------------------------------------- |
+| `BROKER_HOST`             | all             | `broker` | Broker hostname on the Compose network         |
+| `BROKER_PORT`             | all             | `1883`   | Broker port                                    |
+| `INTERVAL_SECONDS`        | both publishers | `5`      | Delay between publications                     |
+| `PUBLISH_TIMEOUT_SECONDS` | both publishers | `5`      | Ack wait limit before a publish is marked failed |
+| `ASAP_STATUS`             | `publisher-asap`| `aman`   | `aman` (safe) or `terdeteksi` (detected)       |
+
+---
+
+## Test scenarios
+
+### 1. Normal flow
 
 ```sh
 docker compose up --build -d
 docker compose logs -f alarm
 ```
 
-Yang diharapkan: unit alarm menerima pesan bergantian dari `security/pintu` (QoS 1) dan
-`security/asap` (QoS 2), serta pesan `online` pada kedua topic status.
+Expected: the alarm unit receives alternating messages from `security/pintu`
+(QoS 1) and `security/asap` (QoS 2), plus `online` messages on both status topics.
 
-### 2. Simulasi asap terdeteksi
+### 2. Simulated smoke detection
+
+Set `ASAP_STATUS` to `terdeteksi` in `docker-compose.yml`, then:
 
 ```sh
-docker compose up -d --build publisher-asap
-# ubah ASAP_STATUS menjadi "terdeteksi" pada docker-compose.yml terlebih dahulu
+docker compose up -d --force-recreate publisher-asap
 docker compose logs --since=30s alarm
 ```
 
-Baris yang diharapkan:
+Expected line:
 
 ```text
 ALERT: asap terdeteksi (security/asap)
 ```
 
-Unit alarm juga mengenali nilai `detected`, `asap terdeteksi`, dan `smoke detected`
-(tidak peka huruf besar/kecil).
+The alarm unit also recognises `detected`, `asap terdeteksi`, and
+`smoke detected` (case-insensitive).
 
-### 3. Bukti Last Will and Testament (LWT)
+### 3. Proving the Last Will and Testament (LWT)
 
-`docker kill` mengakhiri proses tanpa MQTT `DISCONNECT`, sehingga broker menerbitkan
-LWT `offline` ke subscriber.
+`docker kill` terminates the process without an MQTT `DISCONNECT`, so the broker
+publishes the `offline` Last Will to subscribers.
 
 Terminal 1:
 
@@ -180,31 +182,32 @@ docker kill publisher-pintu
 docker compose logs --since=30s alarm
 ```
 
-Baris yang diharapkan:
+Expected line:
 
 ```text
 ALERT: sensor pintu offline (security/pintu/status)
 ```
 
-Pengujian yang sama berlaku untuk `docker kill publisher-asap`, dengan baris
+The same test works for `docker kill publisher-asap`, producing
 `ALERT: sensor asap offline (security/asap/status)`.
 
-Setelah `docker kill`, container tetap berhenti sampai dijalankan kembali secara eksplisit:
+After `docker kill`, the container stays stopped until started explicitly:
 
 ```sh
 docker compose start publisher-pintu
 ```
 
-Saat tersambung kembali, publisher menerbitkan `online` sehingga alarm tahu perangkat pulih.
+On reconnect, the publisher publishes `online` again so the alarm knows the
+device has recovered.
 
-### 4. Resiliensi saat broker direstart
+### 4. Resilience across a broker restart
 
 ```sh
 docker restart mqtt-alarm-broker
 ```
 
-Kedua publisher tidak crash: kegagalan publish ditangani sebagai peringatan,
-lalu koneksi dipulihkan otomatis oleh library MQTT.
+Neither publisher crashes: a failed publish is handled as a warning, and the
+connection is restored automatically by the MQTT library.
 
 ```text
 [WARN] Gagal publish security/pintu -> tertutup: Message publish failed: The client is not currently connected.
@@ -217,21 +220,21 @@ lalu koneksi dipulihkan otomatis oleh library MQTT.
 
 ## Troubleshooting
 
-| Gejala                                             | Penyebab & solusi                                                                 |
-| -------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `port is already allocated`                        | Port 1883 dipakai proses lain. Hentikan proses tersebut atau ubah mapping port.    |
-| Publisher berulang kali mencetak `[WARN] Gagal publish` | Broker sedang mati. Cek `docker compose ps` dan status health broker.        |
-| Alarm langsung mencetak `ALERT: sensor ... offline` saat start | LWT `offline` yang tersisa (retained) dari sesi sebelumnya. Hilang setelah publisher tersambung dan mengirim `online`. Untuk kondisi bersih, jalankan `docker compose down -v` lebih dulu. |
-| Perubahan `ASAP_STATUS` tidak berefek              | Container perlu dibuat ulang: `docker compose up -d --force-recreate publisher-asap`. |
+| Symptom                                                        | Cause & fix                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `port is already allocated`                                    | Port 1883 is in use. Stop the other process or change the port mapping.          |
+| Publishers repeatedly log `[WARN] Gagal publish`               | The broker is down. Check `docker compose ps` and the broker health status.      |
+| Alarm immediately reports `ALERT: sensor ... offline` on start  | A retained `offline` Last Will left over from a previous session. It clears once the publisher reconnects and sends `online`. For a clean state, run `docker compose down -v` first. |
+| Changing `ASAP_STATUS` has no effect                           | The container must be recreated: `docker compose up -d --force-recreate publisher-asap`. |
 
 ---
 
-## Catatan keamanan
+## Security notes
 
-Konfigurasi ini ditujukan untuk **demo dan pembelajaran**, bukan produksi:
+This configuration is intended for **demos and learning**, not for production:
 
-- `allow_anonymous true` — broker menerima koneksi tanpa autentikasi.
-- Port 1883 diekspos ke host tanpa TLS.
+- `allow_anonymous true` — the broker accepts connections without authentication.
+- Port 1883 is exposed to the host without TLS.
 
-Untuk penggunaan nyata, aktifkan autentikasi (username/password atau sertifikat klien),
-gunakan TLS pada port 8883, dan jangan mengekspos broker ke jaringan publik.
+For real deployments, enable authentication (username/password or client
+certificates), use TLS on port 8883, and never expose the broker to a public network.
